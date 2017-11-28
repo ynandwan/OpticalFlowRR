@@ -8,7 +8,6 @@ import scipy as sp
 import sys
 from IPython.core.debugger import Pdb
 
-import UtilityClasses as uc
 from numpy import linalg as LA
 
 SIZE = (160,120)
@@ -100,7 +99,7 @@ sigl = len(rrsignal)
 plot_rrsignal = plot_rrsignal[int(sigl*0.06): int(sigl*0.94)]
 
 fig = plt.figure()
-plt.plot(plot_rrsignal[::frame_rate/3])
+plt.plot(plot_rrsignal[::int(frame_rate/3)])
 plt.show()
 fig.savefig('rsignal_'+file_name+'.png') # Use fig. here
 
@@ -112,9 +111,9 @@ for k in range(len(rrsignal[2*frame_rate:-2*frame_rate])):
     #Pdb().set_trace()
     fourier = abs(np.fft.fft(rrsignal[k-hw*frame_rate:k]))
     N = fourier.size
-    fourier = fourier[:N/2]
+    fourier = fourier[:int(N/2)]
     freq = np.fft.fftfreq(N, d=1.0/frame_rate)
-    freq = freq[:N/2]
+    freq = freq[:int(N/2)]
     m = max(fourier)
     d = [i for i,j in enumerate(fourier) if j == m]
     #Pdb().set_trace()
