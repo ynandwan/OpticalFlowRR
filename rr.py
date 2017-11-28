@@ -8,7 +8,6 @@ import scipy as sp
 import sys
 from IPython.core.debugger import Pdb
 
-sys.path.append('/home/yatin/phd/vision/code/project')
 import UtilityClasses as uc
 from numpy import linalg as LA
 
