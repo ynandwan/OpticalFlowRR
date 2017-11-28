@@ -12,64 +12,120 @@ sys.path.append('/home/yatin/phd/vision/code/project')
 import UtilityClasses as uc
 from numpy import linalg as LA
 
-BASE_PATH = '/home/yatin/phd/vision'
-os.chdir(BASE_PATH)
-#100 cols, 80 rows
-SIZE = (100,80)
-FLOW_MEMORY = 0.95
-PFF_MEMORY = 0.95
+SIZE = (160,120)
+GRAD_SIZE = (int(160*0.25), int(120*0.25))
+FLOW_MEMORY = 0.85
+PFF_MEMORY = 0.85
+MA = 10
+SIGNAL_MEMORY = 0.80
 
 n = 0
 prevGray = None
-favg = uc.EWMA(FLOW_MEMORY)
-pff = uc.EWMA(PFF_MEMORY)
 rrsignal = []
-cap = cv2.VideoCapture('data/project/rr.mov')
+file_name = sys.argv[1]
+cap = cv2.VideoCapture(file_name)
+frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
+
+print ("Frame Rate: %d"%frame_rate)
+
+allrn = []
 while(cap.isOpened()):
     ret, frame = cap.read()
+
     if ret==True:
         n += 1
-        #if n%20 != 0:
-        #    continue
-        #
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.resize(gray, SIZE) 
-        gray = gray.astype(float)
-        if(n > 1):
-            imx,imy = np.gradient(gray)
+        frame = frame.astype(float)
+        gray_org = 0.29 * frame[:,:,2] + 0.59 * frame[:,:,1] + 0.11 * frame[:,:,0]
+        gray_blur = cv2.GaussianBlur(gray_org,(21,21),8,borderType=0)
+        gray = cv2.resize(gray_blur, SIZE)
+        imx,imy = np.gradient(gray)
+        
+        if(n == 1):
+            prevGray = gray
             
-            dn = gray - prevGray
-            #Pdb().set_trace()
-            gradNorm2 = np.multiply(imy,imy) + np.multiply(imx,imx) 
-            gradNorm2[gradNorm2==0] = 1.0
-            flowx = -1*np.multiply(imx,dn)/gradNorm2
-            flowy = -1*np.multiply(imy,dn)/gradNorm2
-            fn = np.hstack((flowx.flatten(),flowy.flatten()))
-            favg.update(fn)
-            if pff.count == 0:
-                pff.update(fn)
-            else:
-                pff.update(np.sign(pff.avg.dot(fn))*fn)
-            #
-            pffNorm = LA.norm(pff.avg)
-            rn = np.dot(favg.avg,pff.avg)/pffNorm
-            rrsignal.append(rn)
+
+        dn = prevGray - gray
+        prevGray  = gray
+        gradNorm2 = np.multiply(imy,imy) + np.multiply(imx,imx) 
+        gradNorm2[gradNorm2 < 9] = float("inf")
+        flowx = np.multiply(imx,dn)/gradNorm2
+        flowy = np.multiply(imy,dn)/gradNorm2
+
+        flowx, flowy = cv2.resize(flowx, None, fx = 0.25, fy = 0.25),   cv2.resize(flowy, None, fx = 0.25, fy = 0.25)
+        fn = np.hstack((flowx.flatten(),flowy.flatten()))
+        
+        if(n == 1):
+            tflow = fn
+            dflow = fn
+            continue
+        
+
+        tflow = FLOW_MEMORY*tflow + fn
+        mag = LA.norm(tflow)
+
+        if(mag > MA):
+            tflow = (tflow * MA) / mag
+            
+        if(dflow.dot(fn) > 0):
+            dflow = PFF_MEMORY*dflow + fn
+        else:
+            dflow = PFF_MEMORY*dflow - fn
+            
+        mag = LA.norm(dflow)
+        if(mag > MA):
+            dflow = (dflow * MA) / mag
+        #
+        pffNorm = LA.norm(dflow)
+        rn = np.dot(tflow,dflow)/pffNorm
+        allrn.append(rn)
+        if(len(rrsignal) > 0):
+            rrsignal.append(rrsignal[-1]*SIGNAL_MEMORY+rn)
+        else:
+            rrsignal.append(0)
         #
         if n%100 == 0:
-        #if n > 890:
             print("n: {0}, this rr: {1}".format(n,rn))
         #
-        prevGray = gray
+        
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     else:
         print("n: {0}".format(n))
         break
-
-# Release everything if job is finished
+        
 cap.release()
 cv2.destroyAllWindows()
 
-%matplotlib inline
-plt.plot(np.array(rrsignal[100:]))
+plot_rrsignal = np.array(rrsignal)
+sigl = len(rrsignal)
+plot_rrsignal = plot_rrsignal[int(sigl*0.06): int(sigl*0.94)]
 
+fig = plt.figure()
+plt.plot(plot_rrsignal[::frame_rate/3])
+plt.show()
+fig.savefig('rsignal_'+file_name+'.png') # Use fig. here
+
+rrate = [0]
+hw = 12
+for k in range(len(rrsignal[2*frame_rate:-2*frame_rate])):
+    if(k < hw*frame_rate):
+        continue
+    #Pdb().set_trace()
+    fourier = abs(np.fft.fft(rrsignal[k-hw*frame_rate:k]))
+    N = fourier.size
+    fourier = fourier[:N/2]
+    freq = np.fft.fftfreq(N, d=1.0/frame_rate)
+    freq = freq[:N/2]
+    m = max(fourier)
+    d = [i for i,j in enumerate(fourier) if j == m]
+    #Pdb().set_trace()
+    rrate.append(60*freq[d])
+
+fig1 = plt.figure()
+plt.plot(rrate)
+plt.show()
+fig1.savefig('bpm_'+file_name+'.png') # Use fig. here
+
+
+avg_rrate = sum(rrate)/len(rrate)*1.0
+print("Average RR rate: %d"%avg_rrate)
